@@ -1634,6 +1634,7 @@ pt_mv:
     cmp playerPP[bx],0
     je pt_inv
     dec playerPP[bx]
+    call nl
     PRINTLN strLine
     PRINTLN strPlayerAct
     mov al,cl
@@ -1652,6 +1653,7 @@ pt_heal:
     mov al,playerMaxHP[bx]
 pt_sh:
     mov playerHP[bx],al
+    call nl
     PRINTLN strLine
     PRINTLN strPlayerAct
     PRINTLN strHeal
@@ -1672,6 +1674,7 @@ pt_switch:
     cmp playerHP[bx],0
     je pt_inv
     je pt_inv
+    call nl
     PRINTLN strLine
     PRINTLN strPlayerAct
     mov activePlayer,al
