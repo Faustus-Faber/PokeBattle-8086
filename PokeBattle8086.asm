@@ -156,13 +156,11 @@ strIsSleeping   db " is fast asleep! $"
 strPlayerAct db " Player Action:$"
 strAIAct     db " AI Action:$"
 strPressBtn  db " Press any button to Continue...$"
-strIsSleeping   db " is fast asleep! $"
+
 strDMG db " damage!$"
 strFailed db " failed!$"
 strCritical db " A critical hit!$"
 strLine db "==========================================$" 
-
-
 
 playerScore db 0
 aiScore     db 0

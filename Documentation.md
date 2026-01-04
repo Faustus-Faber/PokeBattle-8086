@@ -1,6 +1,6 @@
 # 📘 PokeBattle 8086 - Complete Technical Documentation
 
-> **File:** `FINALPROJECT341.asm`  
+> **File:** `PokeBattle8086.asm`  
 > **Total Lines:** 2110  
 > **Platform:** 8086 Assembly (EMU8086)
 
