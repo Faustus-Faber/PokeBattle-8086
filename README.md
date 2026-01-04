@@ -44,7 +44,7 @@ Choose from 6 iconic Pokemon, each with unique stats and moves:
 
 1.  **Assembler**: Use **EMU8086** (or MASM/TASM with compatible linker).
 2.  **Compilation**:
-    *   Open `FINALPROJECT341.asm` in EMU8086.
+    *   Open `PokeBattle8086.asm` in EMU8086.
     *   Click **Emulate**.
     *   Click **Run**.
 3.  **Controls**:
