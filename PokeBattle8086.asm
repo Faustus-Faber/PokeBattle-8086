@@ -90,31 +90,31 @@ mStatusType db 0,0,1,0,0,0,4,2,0,5,0,5,0,0,0,0,0,0,0,0,1,3,0,0
 mHits      db 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,1,1,1,1
 
 
-playerTeam db 3 dup(0)
-aiTeam db 3 dup(0)
-playerHP db 3 dup(0)
-aiHP db 3 dup(0)
-playerMaxHP db 3 dup(0)
-aiMaxHP db 3 dup(0)
-playerPP db 12 dup(0)
-aiPP db 12 dup(0)
-playerItemUsed db 3 dup(0)
-aiItemUsed db 3 dup(0)
-activePlayer db 0
-activeAI db 0
-battleResult db 0
-aiAvail db 6 dup(1)
-aiScores db 6 dup(0)
+playerTeamIndices db 3 dup(0)
+aiTeamIndices db 3 dup(0)
+playerCurrentHP db 3 dup(0)
+aiCurrentHP db 3 dup(0)
+playerMaximumHP db 3 dup(0)
+aiMaximumHP db 3 dup(0)
+playerMovePP db 12 dup(0)
+aiMovePP db 12 dup(0)
+playerHealUsed db 3 dup(0)
+aiHealUsed db 3 dup(0)
+currentPlayerPokemonIndex db 0
+currentAIPokemonIndex db 0
+battleOutcomeFlag db 0
+aiPokemonAvailable db 6 dup(1)
+aiTypeAdvantageScores db 6 dup(0)
 
-playerStatus db 3 dup(0)
-aiStatus db 3 dup(0)
-playerStatusTurns db 3 dup(0)
-aiStatusTurns db 3 dup(0)
-playerRecharge db 3 dup(0)
-aiRecharge db 3 dup(0)
+playerStatusCondition db 3 dup(0)
+aiStatusCondition db 3 dup(0)
+playerStatusDuration db 3 dup(0)
+aiStatusDuration db 3 dup(0)
+playerRechargeFlag db 3 dup(0)
+aiRechargeFlag db 3 dup(0)
 
 
-effectMatrix db 1,1,1,1,1  
+typeEffectivenessMatrix db 1,1,1,1,1  
              db 1,1,2,0,1  
              db 1,0,1,2,1  
              db 1,2,0,1,1  
@@ -197,7 +197,7 @@ strRow2       db "||  3) Charmander     4) Squirtle       ||$"
 strRow3       db "||  5) Eevee          6) Snorlax        ||$"
 .code
 
-LOAD_IDX MACRO var
+SET_INDEX_REGISTER MACRO var
     mov bl,var
     mov bh,0
 ENDM
@@ -213,12 +213,12 @@ PRINTLN MACRO msg
     call nl
 ENDM
 
-LOAD_ARR MACRO arr,idx
-    LOAD_IDX idx
+LOAD_ARRAY_ELEMENT MACRO arr,idx
+    SET_INDEX_REGISTER idx
     mov al,arr[bx]
 ENDM
 
-SUM_HP MACRO arr
+SUM_TEAM_HP MACRO arr
     LOCAL loop_lbl
     mov cx,3
     mov bx,0
@@ -229,7 +229,7 @@ SUM_HP MACRO arr
     loop loop_lbl
 ENDM
 
-RESET_ARR MACRO arr,val,count
+RESET_ARRAY_VALUES MACRO arr,val,count
     LOCAL loop_lbl
     mov cx,count
     mov si,0
@@ -241,7 +241,7 @@ RESET_ARR MACRO arr,val,count
 ENDM
 
 
-SAFE_ADD MACRO dest, val, maxval
+ADD_WITH_OVERFLOW_CHECK MACRO dest, val, maxval
     LOCAL overflow, done
     push ax
     mov al, dest
@@ -256,7 +256,7 @@ done:
     pop ax
 ENDM
 
-SAFE_ADD_IDX MACRO arr, maxArr, val
+ADD_INDEXED_WITH_CAP MACRO arr, maxArr, val
     LOCAL overflow, done
     push ax
     push cx
@@ -274,9 +274,9 @@ done:
     pop ax
 ENDM
 
-APPLY_DAMAGE MACRO activeIdx, hpArr, faintProc
+APPLY_DAMAGE_TO_TARGET MACRO activeIdx, hpArr, faintProc
     LOCAL skip_dmg, done_dmg
-    LOAD_IDX activeIdx
+    SET_INDEX_REGISTER activeIdx
     cmp al,hpArr[bx]
     jb skip_dmg
     mov al,hpArr[bx]
@@ -505,7 +505,7 @@ back_to_menu:
     int 21h
     mov ah, 01h
     int 21h
-    call START_BATTLE
+    call EXECUTE_BATTLE_SEQUENCE
     jmp menu_loop
 
 do_help:
@@ -790,80 +790,80 @@ print_num endp
 
 ;===========================================================================
 ;===========================================================================
-START_BATTLE proc
+EXECUTE_BATTLE_SEQUENCE proc
     ; ==========================================
     ; Feature 3: Turn-Based Battle Engine
     ; DONE BY: Farhan Zarif (23301692)
     ; ==========================================
-    call INIT_BATTLE
-    call AI_PICK_TEAM
-    mov activePlayer,0
-    mov activeAI,0
-    mov battleResult,0
-battle_loop:
-    call CHECK_END
-    cmp battleResult,0
-    jne battle_over
+    call INITIALIZE_BATTLE_STATE
+    call AI_SELECT_COUNTER_TEAM
+    mov currentPlayerPokemonIndex,0
+    mov currentAIPokemonIndex,0
+    mov battleOutcomeFlag,0
+main_battle_loop:
+    call CHECK_BATTLE_END_CONDITION
+    cmp battleOutcomeFlag,0
+    jne battle_concluded
     call DRAW_UI
-    mov bl,activePlayer
+    mov bl,currentPlayerPokemonIndex
     mov bh,0
-    mov al,playerTeam[bx]
+    mov al,playerTeamIndices[bx]
     mov ah,0
     mov bx,ax
     mov cl,pSpeed[bx]
-    mov bl,activeAI
+    mov bl,currentAIPokemonIndex
     mov bh,0
-    mov al,aiTeam[bx]
+    mov al,aiTeamIndices[bx]
     mov ah,0
     mov bx,ax
     mov ch,pSpeed[bx]
     cmp cl,ch
-    jb ai_first
+    jb ai_acts_first
     
-    mov al, activeAI
+    mov al, currentAIPokemonIndex
     push ax
-    call PLAYER_TURN
-    call CHECK_END
-    cmp battleResult,0
-    jne battle_pop_end
+    call EXECUTE_PLAYER_TURN
+    call CHECK_BATTLE_END_CONDITION
+    cmp battleOutcomeFlag,0
+    jne cleanup_stack_and_end
     pop ax
-    cmp al, activeAI
-    jne battle_loop
+    cmp al, currentAIPokemonIndex
+    jne main_battle_loop
     
-    call AI_TURN
-    call APPLY_STATUS_DAMAGE
-    call CHECK_END
-    jmp battle_loop
+    call EXECUTE_AI_TURN
+    call APPLY_POISON_BURN_DAMAGE
+    call CHECK_BATTLE_END_CONDITION
+    jmp main_battle_loop
 
-battle_pop_end:
+cleanup_stack_and_end:
     pop ax
-    jmp battle_over
-ai_first:
-    mov al, activePlayer
+    jmp battle_concluded
+ai_acts_first:
+    mov al, currentPlayerPokemonIndex
     push ax
-    call AI_TURN
-    call CHECK_END
-    cmp battleResult,0
-    jne battle_pop_end
+    call EXECUTE_AI_TURN
+    call CHECK_BATTLE_END_CONDITION
+    cmp battleOutcomeFlag,0
+    jne cleanup_stack_and_end
     pop ax
-    cmp al, activePlayer
-    jne battle_loop
+    cmp al, currentPlayerPokemonIndex
+    jne main_battle_loop
 
     call DRAW_UI
-    call PLAYER_TURN
-    call APPLY_STATUS_DAMAGE
-    call CHECK_END
-    jmp battle_loop
+    call EXECUTE_PLAYER_TURN
+    call APPLY_POISON_BURN_DAMAGE
+    call CHECK_BATTLE_END_CONDITION
+    jmp main_battle_loop
        
-battle_over:
+battle_concluded:
     call clrscr
     call nl
     lea dx,strLine
     call pstr
     call nl
     
-    cmp battleResult,1
-    jne show_lose
+    cmp battleOutcomeFlag,1
+    jne display_loss_result
 
     inc playerScore
     inc roundCount
@@ -871,20 +871,20 @@ battle_over:
     
     mov al, winStreak
     cmp al, bestStreak
-    jle no_new_best
+    jle skip_best_streak_update
     mov bestStreak, al
-no_new_best:
+skip_best_streak_update:
     
     lea dx,strWin
-    jmp show_end
+    jmp display_final_stats
 
-show_lose:
+display_loss_result:
     inc aiScore
     inc roundCount
     mov winStreak, 0
     lea dx,strLose
 
-show_end:
+display_final_stats:
     call pstr
     call nl
 
@@ -911,7 +911,7 @@ show_end:
     
     mov al, winStreak
     cmp al, 0
-    je no_streak_display
+    je skip_streak_message
     
     lea dx, strCurrentStreak
     call pstr
@@ -919,7 +919,7 @@ show_end:
     call print_num
     call nl
 
-no_streak_display:
+skip_streak_message:
     =======
 
     lea dx,strLine
@@ -930,31 +930,31 @@ no_streak_display:
     mov ah,01h
     int 21h
     ret
-START_BATTLE endp
+EXECUTE_BATTLE_SEQUENCE endp
 
-INIT_BATTLE proc
+INITIALIZE_BATTLE_STATE proc
     push ax
     push bx
     push cx
     push si
     mov cx,3
     mov si,0
-ib1:
+copy_selection_loop:
     mov al,selectedArray[si]
     sub al,'1'
-    mov playerTeam[si],al
+    mov playerTeamIndices[si],al
     inc si
-    loop ib1
+    loop copy_selection_loop
     mov cx,3
     mov si,0
-ib2:
-    mov bl,playerTeam[si]
+init_player_stats_loop:
+    mov bl,playerTeamIndices[si]
     mov bh,0
     mov al,pMaxHP[bx]
-    mov playerHP[si],al
-    mov playerMaxHP[si],al
-    mov playerItemUsed[si],0
-    mov playerRecharge[si],0
+    mov playerCurrentHP[si],al
+    mov playerMaximumHP[si],al
+    mov playerHealUsed[si],0
+    mov playerRechargeFlag[si],0
     push cx
     mov al,bl
     mov cl,4
@@ -964,89 +964,89 @@ ib2:
     mul cl
     mov bx,ax
     mov cx,4
-ib3:
+copy_pp_values_loop:
     mov al,mPPMax[di]
-    mov playerPP[bx],al
+    mov playerMovePP[bx],al
     inc di
     inc bx
-    loop ib3
+    loop copy_pp_values_loop
     pop cx
     inc si
-    loop ib2
-    RESET_ARR aiAvail, 1, 6
+    loop init_player_stats_loop
+    RESET_ARRAY_VALUES aiPokemonAvailable, 1, 6
     mov cx,3
     mov si,0
-ib5:
-    mov bl,playerTeam[si]
+mark_player_picks_unavail:
+    mov bl,playerTeamIndices[si]
     mov bh,0
-    mov aiAvail[bx],0
+    mov aiPokemonAvailable[bx],0
     inc si
-    loop ib5
-    RESET_ARR playerStatus, 0, 3
-    RESET_ARR aiStatus, 0, 3
-    RESET_ARR playerStatusTurns, 0, 3
-    RESET_ARR aiStatusTurns, 0, 3
+    loop mark_player_picks_unavail
+    RESET_ARRAY_VALUES playerStatusCondition, 0, 3
+    RESET_ARRAY_VALUES aiStatusCondition, 0, 3
+    RESET_ARRAY_VALUES playerStatusDuration, 0, 3
+    RESET_ARRAY_VALUES aiStatusDuration, 0, 3
     pop si
     pop cx
     pop bx
     pop ax
     ret
-INIT_BATTLE endp
+INITIALIZE_BATTLE_STATE endp
 
-AI_PICK_TEAM proc
+AI_SELECT_COUNTER_TEAM proc
     push ax
     push bx
     push cx
     push si
     push di
     mov si,0
-ais1:
+score_all_pokemon_loop:
     cmp si,6
-    jge ais2
-    cmp aiAvail[si],0
-    je ais_next
+    jge select_best_three
+    cmp aiPokemonAvailable[si],0
+    je next_pokemon_to_score
     mov di,0
     mov dl,0
-ais_vs:
+calc_type_advantage_loop:
     cmp di,3
-    jge ais_store
+    jge store_pokemon_score
     mov bx,si
     mov al,pType[bx]
-    mov bl,playerTeam[di]
+    mov bl,playerTeamIndices[di]
     mov bh,0
     mov ah,pType[bx]
-    call GET_MULT
+    call GET_TYPE_EFFECTIVENESS
     add dl,al
     inc di
-    jmp ais_vs
-ais_store:
-    mov aiScores[si],dl
-ais_next:
+    jmp calc_type_advantage_loop
+store_pokemon_score:
+    mov aiTypeAdvantageScores[si],dl
+next_pokemon_to_score:
     inc si
-    jmp ais1
-ais2:
-    call FIND_BEST
-    mov aiTeam[0],al
+    jmp score_all_pokemon_loop
+select_best_three:
+    call FIND_HIGHEST_SCORE_POKEMON
+    mov aiTeamIndices[0],al
     mov bl,al
     mov bh,0
-    mov aiAvail[bx],0
-    call FIND_BEST
-    mov aiTeam[1],al
+    mov aiPokemonAvailable[bx],0
+    call FIND_HIGHEST_SCORE_POKEMON
+    mov aiTeamIndices[1],al
     mov bl,al
     mov bh,0
-    mov aiAvail[bx],0
-    call FIND_BEST
-    mov aiTeam[2],al
+    mov aiPokemonAvailable[bx],0
+    call FIND_HIGHEST_SCORE_POKEMON
+    mov aiTeamIndices[2],al
     mov cx,3
     mov si,0
-ait1:
-    mov bl,aiTeam[si]
+init_ai_stats_loop:
+    mov bl,aiTeamIndices[si]
     mov bh,0
     mov al,pMaxHP[bx]
-    mov aiHP[si],al
-    mov aiMaxHP[si],al
-    mov aiItemUsed[si],0
-    mov aiRecharge[si],0
+    mov aiCurrentHP[si],al
+    mov aiMaximumHP[si],al
+    mov aiHealUsed[si],0
+    mov aiRechargeFlag[si],0
     push cx
     mov al,bl
     mov cl,4
@@ -1056,48 +1056,48 @@ ait1:
     mul cl
     mov bx,ax
     mov cx,4
-ait2:
+copy_ai_pp_loop:
     mov al,mPPMax[di]
-    mov aiPP[bx],al
+    mov aiMovePP[bx],al
     inc di
     inc bx
-    loop ait2
+    loop copy_ai_pp_loop
     pop cx
     inc si
-    loop ait1
+    loop init_ai_stats_loop
     pop di
     pop si
     pop cx
     pop bx
     pop ax
     ret
-AI_PICK_TEAM endp
+AI_SELECT_COUNTER_TEAM endp
 
-FIND_BEST proc
+FIND_HIGHEST_SCORE_POKEMON proc
     push bx
     push cx
     mov cx,6
     mov bx,0
     mov dl,0
     mov dh,0
-fb1:
-    cmp aiAvail[bx],0
-    je fb2
-    mov al,aiScores[bx]
+find_best_loop:
+    cmp aiPokemonAvailable[bx],0
+    je next_candidate
+    mov al,aiTypeAdvantageScores[bx]
     cmp al,dl
-    jle fb2
+    jle next_candidate
     mov dl,al
     mov dh,bl
-fb2:
+next_candidate:
     inc bx
-    loop fb1
+    loop find_best_loop
     mov al,dh
     pop cx
     pop bx
     ret
-FIND_BEST endp
+FIND_HIGHEST_SCORE_POKEMON endp
 
-GET_MULT proc
+GET_TYPE_EFFECTIVENESS proc
     push bx
     push cx
     mov cl,ah
@@ -1106,141 +1106,141 @@ GET_MULT proc
     mul bl
     add al,cl
     mov bx,ax
-    mov al,effectMatrix[bx]
+    mov al,typeEffectivenessMatrix[bx]
     pop cx
     pop bx
     ret
-GET_MULT endp
+GET_TYPE_EFFECTIVENESS endp
 
-CHECK_STATUS proc
+CHECK_STATUS_CONDITIONS proc
     push bx
     push dx
     mov bh,0
     
     cmp cl,0
-    jne cs_rech_chk_ai
-    cmp playerRecharge[bx],1
-    jne cs_start_status
-    mov playerRecharge[bx],0
-    jmp cs_do_rech
-cs_rech_chk_ai:
-    cmp aiRecharge[bx],1
-    jne cs_start_status
-    mov aiRecharge[bx],0
-cs_do_rech:
+    jne check_ai_recharge_flag
+    cmp playerRechargeFlag[bx],1
+    jne check_standard_status
+    mov playerRechargeFlag[bx],0
+    jmp print_recharge_message
+check_ai_recharge_flag:
+    cmp aiRechargeFlag[bx],1
+    jne check_standard_status
+    mov aiRechargeFlag[bx],0
+print_recharge_message:
     push ax
     push bx
     cmp cl,0
-    jne csrb_ai
-    LOAD_ARR playerTeam,activePlayer
-    jmp csrb_pr
-csrb_ai:
-    LOAD_ARR aiTeam,activeAI
-csrb_pr:
+    jne load_ai_name_for_recharge
+    LOAD_ARRAY_ELEMENT playerTeamIndices,currentPlayerPokemonIndex
+    jmp print_recharge_name
+load_ai_name_for_recharge:
+    LOAD_ARRAY_ELEMENT aiTeamIndices,currentAIPokemonIndex
+print_recharge_name:
     call print_poke
     pop bx
     pop ax
     PRINTLN strRecharge
-    jmp cs_skip
+    jmp skip_turn_message
     
-cs_start_status:
+check_standard_status:
     cmp cl,0
-    jne cs_ai
-    mov al,playerStatus[bx]
-    jmp cs_chk
-cs_ai:
-    mov al,aiStatus[bx]
-cs_chk:
+    jne load_ai_status
+    mov al,playerStatusCondition[bx]
+    jmp evaluate_status_type
+load_ai_status:
+    mov al,aiStatusCondition[bx]
+evaluate_status_type:
     cmp al,0
-    je cs_ok
+    je status_allows_action
     cmp al,3
-    je cs_rest
+    je handle_rest_wakeup
     cmp al,4
-    jge cs_ok
+    jge status_allows_action
     
     cmp cl,0
-    jne cs_dec_ai
-    dec playerStatusTurns[bx]
-    cmp playerStatusTurns[bx],0
-    jg cs_skip
-    mov playerStatus[bx],0
-    jmp cs_wake
-cs_dec_ai:
-    dec aiStatusTurns[bx]
-    cmp aiStatusTurns[bx],0
-    jg cs_skip
-    mov aiStatus[bx],0
-cs_wake:
+    jne decrement_ai_status_turns
+    dec playerStatusDuration[bx]
+    cmp playerStatusDuration[bx],0
+    jg skip_turn_message
+    mov playerStatusCondition[bx],0
+    jmp print_woke_up_message
+decrement_ai_status_turns:
+    dec aiStatusDuration[bx]
+    cmp aiStatusDuration[bx],0
+    jg skip_turn_message
+    mov aiStatusCondition[bx],0
+print_woke_up_message:
     push ax
     push bx
     cmp cl,0
-    jne csw_ai
-    LOAD_ARR playerTeam,activePlayer
-    jmp csw_pr
-csw_ai:
-    LOAD_ARR aiTeam,activeAI
-csw_pr:
+    jne load_ai_name_wake
+    LOAD_ARRAY_ELEMENT playerTeamIndices,currentPlayerPokemonIndex
+    jmp print_wake_name
+load_ai_name_wake:
+    LOAD_ARRAY_ELEMENT aiTeamIndices,currentAIPokemonIndex
+print_wake_name:
     call print_poke
     pop bx
     pop ax
     PRINTLN strWokeUp
-    jmp cs_ok
+    jmp status_allows_action
     
-cs_rest:
+handle_rest_wakeup:
     cmp cl,0
-    jne cs_rst_ai
-    mov playerStatus[bx],0
-    jmp cs_rst_msg
-cs_rst_ai:
-    mov aiStatus[bx],0
-cs_rst_msg:
+    jne clear_ai_rest_status
+    mov playerStatusCondition[bx],0
+    jmp print_sleeping_message
+clear_ai_rest_status:
+    mov aiStatusCondition[bx],0
+print_sleeping_message:
     push ax
     push bx
     cmp cl,0
-    jne csrm_ai
-    LOAD_ARR playerTeam,activePlayer
-    jmp csrm_pr
-csrm_ai:
-    LOAD_ARR aiTeam,activeAI
-csrm_pr:
+    jne load_ai_name_sleep
+    LOAD_ARRAY_ELEMENT playerTeamIndices,currentPlayerPokemonIndex
+    jmp print_sleep_name
+load_ai_name_sleep:
+    LOAD_ARRAY_ELEMENT aiTeamIndices,currentAIPokemonIndex
+print_sleep_name:
     call print_poke
     pop bx
     pop ax
     PRINTLN strIsSleeping
-    jmp cs_skip
+    jmp skip_turn_message
 
-cs_skip:
+skip_turn_message:
     
     
     push ax
     push bx
     cmp cl,0
-    jne css_ai
-    LOAD_ARR playerTeam,activePlayer
-    jmp css_pr
-css_ai:
-    LOAD_ARR aiTeam,activeAI
-css_pr:
+    jne load_ai_cant_move
+    LOAD_ARRAY_ELEMENT playerTeamIndices,currentPlayerPokemonIndex
+    jmp print_cant_move_name
+load_ai_cant_move:
+    LOAD_ARRAY_ELEMENT aiTeamIndices,currentAIPokemonIndex
+print_cant_move_name:
     call print_poke
     pop bx
     pop ax
     PRINTLN strCantMove
     mov al,0
-    jmp cs_done
-cs_ok:
+    jmp status_check_complete
+status_allows_action:
     mov al,1
-cs_done:
+status_check_complete:
     pop dx
     pop bx
     ret
-CHECK_STATUS endp
+CHECK_STATUS_CONDITIONS endp
 
-CHECK_ACCURACY proc
+ROLL_ACCURACY_CHECK proc
     push cx
     push dx
     mov al,mAccuracy[bx]
     cmp al,255
-    je ca_hit
+    je accuracy_check_passed
     push ax
     push bx
     mov ah,0
@@ -1254,43 +1254,43 @@ CHECK_ACCURACY proc
     pop bx
     pop ax
     cmp cl,al
-    jle ca_hit
+    jle accuracy_check_passed
     lea dx,strMissed
     call pstr
     call nl
     mov al,0
-    jmp ca_done
-ca_hit:
+    jmp accuracy_check_complete
+accuracy_check_passed:
     mov al,1
-ca_done:
+accuracy_check_complete:
     pop dx
     pop cx
     ret
-CHECK_ACCURACY endp
+ROLL_ACCURACY_CHECK endp
 
-APPLY_STATUS_DAMAGE proc
+APPLY_POISON_BURN_DAMAGE proc
     push ax
     push bx
-    LOAD_IDX activePlayer
-    mov al,playerStatus[bx]
+    SET_INDEX_REGISTER currentPlayerPokemonIndex
+    mov al,playerStatusCondition[bx]
     cmp al,4
-    je asd_p
+    je apply_player_status_dmg
     cmp al,5
-    jne asd_ai
-asd_p:
-    mov al,playerMaxHP[bx]
+    jne check_ai_status_damage
+apply_player_status_dmg:
+    mov al,playerMaximumHP[bx]
     shr al,3
     cmp al,0
-    jne asd_p1
+    jne player_status_min_damage
     mov al,1
-asd_p1:
-    cmp al,playerHP[bx]
-    jb asd_p2
-    mov al,playerHP[bx]
-asd_p2:
-    sub playerHP[bx],al
+player_status_min_damage:
+    cmp al,playerCurrentHP[bx]
+    jb player_status_cap_damage
+    mov al,playerCurrentHP[bx]
+player_status_cap_damage:
+    sub playerCurrentHP[bx],al
     push ax
-    LOAD_ARR playerTeam,activePlayer
+    LOAD_ARRAY_ELEMENT playerTeamIndices,currentPlayerPokemonIndex
     call print_poke
     PRINT strHurtByStatus
     pop ax
@@ -1301,30 +1301,30 @@ asd_p2:
     int 21h
     call nl
     
-    cmp playerHP[bx],0
-    jg asd_ai
-    call PLAYER_FAINT
-asd_ai:
-    LOAD_IDX activeAI
-    mov al,aiStatus[bx]
+    cmp playerCurrentHP[bx],0
+    jg check_ai_status_damage
+    call HANDLE_PLAYER_POKEMON_FAINT
+check_ai_status_damage:
+    SET_INDEX_REGISTER currentAIPokemonIndex
+    mov al,aiStatusCondition[bx]
     cmp al,4
-    je asd_a
+    je apply_ai_status_dmg
     cmp al,5
-    jne asd_done
-asd_a:
-    mov al,aiMaxHP[bx]
+    jne status_damage_complete
+apply_ai_status_dmg:
+    mov al,aiMaximumHP[bx]
     shr al,3
     cmp al,0
-    jne asd_a1
+    jne ai_status_min_damage
     mov al,1
-asd_a1:
-    cmp al,aiHP[bx]
-    jb asd_a2
-    mov al,aiHP[bx]
-asd_a2:
-    sub aiHP[bx],al
+ai_status_min_damage:
+    cmp al,aiCurrentHP[bx]
+    jb ai_status_cap_damage
+    mov al,aiCurrentHP[bx]
+ai_status_cap_damage:
+    sub aiCurrentHP[bx],al
     push ax
-    LOAD_ARR aiTeam,activeAI
+    LOAD_ARRAY_ELEMENT aiTeamIndices,currentAIPokemonIndex
     call print_poke
     PRINT strHurtByStatus
     pop ax
@@ -1335,14 +1335,14 @@ asd_a2:
     int 21h
     call nl
     
-    cmp aiHP[bx],0
-    jg asd_done
-    call AI_FAINT
-asd_done:
+    cmp aiCurrentHP[bx],0
+    jg status_damage_complete
+    call HANDLE_AI_POKEMON_FAINT
+status_damage_complete:
     pop bx
     pop ax
     ret
-APPLY_STATUS_DAMAGE endp
+APPLY_POISON_BURN_DAMAGE endp
 
 DRAW_HP_BAR proc
     push ax
@@ -1413,25 +1413,25 @@ DRAW_UI proc
     PRINTLN strLine
     
     PRINT strEnemy
-    LOAD_ARR aiTeam,activeAI
+    LOAD_ARRAY_ELEMENT aiTeamIndices,currentAIPokemonIndex
     call print_poke
     call nl
     
     PRINT strHP
-    LOAD_ARR aiHP,activeAI
+    LOAD_ARRAY_ELEMENT aiCurrentHP,currentAIPokemonIndex
     mov bl, al
     call print_num
     PRINT strSlash
-    LOAD_ARR aiMaxHP,activeAI
+    LOAD_ARRAY_ELEMENT aiMaximumHP,currentAIPokemonIndex
     call print_num
     
     mov ah, 02h
     mov dl, ' '
     int 21h
     
-    LOAD_ARR aiHP,activeAI
+    LOAD_ARRAY_ELEMENT aiCurrentHP,currentAIPokemonIndex
     mov dl, al
-    LOAD_ARR aiMaxHP,activeAI
+    LOAD_ARRAY_ELEMENT aiMaximumHP,currentAIPokemonIndex
     mov ah, al
     mov al, dl
     call DRAW_HP_BAR
@@ -1439,25 +1439,25 @@ DRAW_UI proc
     call nl 
     
     PRINT strYou
-    LOAD_ARR playerTeam,activePlayer
+    LOAD_ARRAY_ELEMENT playerTeamIndices,currentPlayerPokemonIndex
     call print_poke
     call nl
     
     PRINT strHP
-    LOAD_ARR playerHP,activePlayer
+    LOAD_ARRAY_ELEMENT playerCurrentHP,currentPlayerPokemonIndex
     mov bl, al
     call print_num
     PRINT strSlash
-    LOAD_ARR playerMaxHP,activePlayer
+    LOAD_ARRAY_ELEMENT playerMaximumHP,currentPlayerPokemonIndex
     call print_num
     
     mov ah, 02h
     mov dl, ' '
     int 21h
     
-    LOAD_ARR playerHP,activePlayer
+    LOAD_ARRAY_ELEMENT playerCurrentHP,currentPlayerPokemonIndex
     mov dl, al
-    LOAD_ARR playerMaxHP,activePlayer
+    LOAD_ARRAY_ELEMENT playerMaximumHP,currentPlayerPokemonIndex
     mov ah, al
     mov al, dl
     call DRAW_HP_BAR
@@ -1478,13 +1478,13 @@ SHOW_MOVES proc
     push si
     push di
     
-    LOAD_IDX activePlayer
-    mov al,playerTeam[bx]
+    SET_INDEX_REGISTER currentPlayerPokemonIndex
+    mov al,playerTeamIndices[bx]
     mov cl,4
     mul cl
     mov si,ax
     
-    mov al,activePlayer
+    mov al,currentPlayerPokemonIndex
     mov cl,4
     mul cl
     mov di,ax
@@ -1522,7 +1522,7 @@ sm_loop_new:
     
     mov bx, di
     add bx, cx
-    mov al, playerPP[bx]
+    mov al, playerMovePP[bx]
     call print_num
     
     mov ah, 02h
@@ -1553,8 +1553,8 @@ sm_loop_new:
     mov dl, 'l'
     int 21h
     
-    LOAD_IDX activePlayer
-    cmp playerItemUsed[bx],1
+    SET_INDEX_REGISTER currentPlayerPokemonIndex
+    cmp playerHealUsed[bx],1
     jne sm_opt_switch
     
     mov dl, ' '
@@ -1600,29 +1600,29 @@ sm_opt_switch:
     ret
 SHOW_MOVES endp
 
-PLAYER_TURN proc
-    mov bl,activePlayer
+EXECUTE_PLAYER_TURN proc
+    mov bl,currentPlayerPokemonIndex
     mov cl,0
-    call CHECK_STATUS
+    call CHECK_STATUS_CONDITIONS
     cmp al,0
-    je pt_done
-pt_in:
+    je player_turn_complete
+player_input_loop:
     PRINT strPick
     mov ah,01h
     int 21h
     cmp al,'1'
-    jb pt_inv
+    jb invalid_player_input
     cmp al,'4'
-    jle pt_mv
+    jle player_use_move
     cmp al,'5'
-    je pt_heal
+    je player_use_heal
     cmp al,'6'
-    je pt_switch
-    jmp pt_inv
-pt_mv:
+    je player_switch_pokemon
+    jmp invalid_player_input
+player_use_move:
     sub al,'1'
     mov cl,al
-    LOAD_IDX activePlayer
+    SET_INDEX_REGISTER currentPlayerPokemonIndex
     mov al,bl
     push cx
     mov cl,4
@@ -1631,120 +1631,120 @@ pt_mv:
     mov ch,0
     add ax,cx
     mov bx,ax
-    cmp playerPP[bx],0
-    je pt_inv
-    dec playerPP[bx]
+    cmp playerMovePP[bx],0
+    je invalid_player_input
+    dec playerMovePP[bx]
     call nl
     PRINTLN strLine
     PRINTLN strPlayerAct
     mov al,cl
     mov ah,0
-    call DO_MOVE
-    jmp pt_done
-pt_heal:
-    LOAD_IDX activePlayer
-    cmp playerItemUsed[bx],1
-    je pt_inv
-    mov playerItemUsed[bx],1
-    mov al,playerHP[bx]
+    call EXECUTE_MOVE_ATTACK
+    jmp player_turn_complete
+player_use_heal:
+    SET_INDEX_REGISTER currentPlayerPokemonIndex
+    cmp playerHealUsed[bx],1
+    je invalid_player_input
+    mov playerHealUsed[bx],1
+    mov al,playerCurrentHP[bx]
     add al,10
-    cmp al,playerMaxHP[bx]
-    jle pt_sh
-    mov al,playerMaxHP[bx]
-pt_sh:
-    mov playerHP[bx],al
+    cmp al,playerMaximumHP[bx]
+    jle apply_player_heal
+    mov al,playerMaximumHP[bx]
+apply_player_heal:
+    mov playerCurrentHP[bx],al
     call nl
     PRINTLN strLine
     PRINTLN strPlayerAct
     PRINTLN strHeal
-    jmp pt_done
-pt_switch:
+    jmp player_turn_complete
+player_switch_pokemon:
     call nl
     PRINT strSwitch
     mov ah,01h
     int 21h
     cmp al,'1'
-    jb pt_inv
+    jb invalid_player_input
     cmp al,'3'
-    jg pt_inv
+    jg invalid_player_input
     sub al,'1'
-    cmp al,activePlayer
-    je pt_inv
-    LOAD_IDX al
-    cmp playerHP[bx],0
-    je pt_inv
-    je pt_inv
+    cmp al,currentPlayerPokemonIndex
+    je invalid_player_input
+    SET_INDEX_REGISTER al
+    cmp playerCurrentHP[bx],0
+    je invalid_player_input
+    je invalid_player_input
     call nl
     PRINTLN strLine
     PRINTLN strPlayerAct
-    mov activePlayer,al
+    mov currentPlayerPokemonIndex,al
     call nl
     lea dx,strGo
     call pstr
-    mov bl,activePlayer
+    mov bl,currentPlayerPokemonIndex
     mov bh,0
-    mov al,playerTeam[bx]
+    mov al,playerTeamIndices[bx]
     call print_poke
     call nl
-    jmp pt_done
-pt_inv:
+    jmp player_turn_complete
+invalid_player_input:
     call nl
     lea dx,invalidMsg
     call pstr
     call nl
-    jmp pt_in
-pt_done:
+    jmp player_input_loop
+player_turn_complete:
     ret
-PLAYER_TURN endp
+EXECUTE_PLAYER_TURN endp
 
-AI_TURN proc
+EXECUTE_AI_TURN proc
     push ax
     push bx
     push cx
     push si
     push di
     PRINTLN strAIAct
-    mov bl,activeAI
+    mov bl,currentAIPokemonIndex
     mov cl,1
-    call CHECK_STATUS
+    call CHECK_STATUS_CONDITIONS
     cmp al,0
-    je at_done
-    LOAD_IDX activeAI
-    mov al,aiMaxHP[bx]
+    je ai_turn_complete
+    SET_INDEX_REGISTER currentAIPokemonIndex
+    mov al,aiMaximumHP[bx]
     mov cl,30
     mul cl
     mov cl,100
     div cl
     mov cl,al
-    LOAD_IDX activeAI
-    mov al,aiHP[bx]
+    SET_INDEX_REGISTER currentAIPokemonIndex
+    mov al,aiCurrentHP[bx]
     cmp al,cl
-    jg at_atk
-    cmp aiItemUsed[bx],1
-    je at_atk
-    mov aiItemUsed[bx],1
-    mov al,aiHP[bx]
+    jg ai_choose_attack
+    cmp aiHealUsed[bx],1
+    je ai_choose_attack
+    mov aiHealUsed[bx],1
+    mov al,aiCurrentHP[bx]
     add al,10
-    cmp al,aiMaxHP[bx]
-    jle at_sh
-    mov al,aiMaxHP[bx]
-at_sh:
-    mov aiHP[bx],al
+    cmp al,aiMaximumHP[bx]
+    jle ai_apply_heal
+    mov al,aiMaximumHP[bx]
+ai_apply_heal:
+    mov aiCurrentHP[bx],al
     call nl
     PRINT strHeal
-    jmp at_done
-at_atk:
-    LOAD_IDX activeAI
-    mov al,aiTeam[bx]
+    jmp ai_turn_complete
+ai_choose_attack:
+    SET_INDEX_REGISTER currentAIPokemonIndex
+    mov al,aiTeamIndices[bx]
     mov cl,4
     mul cl
     mov si,ax
-    mov al,activeAI
+    mov al,currentAIPokemonIndex
     mov cl,4
     mul cl
     mov di,ax
 
-at_rnd:
+ai_random_move_select:
     push cx
     push dx
     push si
@@ -1766,23 +1766,23 @@ at_rnd:
     
     push bx
     add bx,di
-    cmp aiPP[bx],0
+    cmp aiMovePP[bx],0
     pop bx
-    je at_rnd 
+    je ai_random_move_select 
 
     push bx
     mov cl,bl
     mov ch,0
     mov bx,di
     add bx,cx
-    dec aiPP[bx]
+    dec aiMovePP[bx]
     pop bx
     
     mov al,bl
     mov ah,1
-    call DO_MOVE
+    call EXECUTE_MOVE_ATTACK
 
-at_done:
+ai_turn_complete:
     PRINTLN strLine
     PRINT pressKey
     mov ah,08h
@@ -1794,9 +1794,9 @@ at_done:
     pop bx
     pop ax
     ret
-AI_TURN endp
+EXECUTE_AI_TURN endp
 
-DO_MOVE proc
+EXECUTE_MOVE_ATTACK proc
     ; ==========================================
     ; Feature 4: Move System with Type Effectiveness
     ; DONE BY: Farhan Zarif (23301692)
@@ -1810,22 +1810,22 @@ DO_MOVE proc
     call nl
     mov ax,si
     cmp ah,0
-    jne dm_ai
-    LOAD_ARR playerTeam,activePlayer
-    jmp dm_nm
-dm_ai:
-    LOAD_ARR aiTeam,activeAI
-dm_nm:
+    jne load_ai_attacker
+    LOAD_ARRAY_ELEMENT playerTeamIndices,currentPlayerPokemonIndex
+    jmp print_attacker_name
+load_ai_attacker:
+    LOAD_ARRAY_ELEMENT aiTeamIndices,currentAIPokemonIndex
+print_attacker_name:
     call print_poke
     PRINT strUsed
     mov ax,si
     cmp ah,0
-    jne dm_ai2
-    LOAD_ARR playerTeam,activePlayer
-    jmp dm_calc
-dm_ai2:
-    LOAD_ARR aiTeam,activeAI
-dm_calc:
+    jne get_ai_pokemon_for_calc
+    LOAD_ARRAY_ELEMENT playerTeamIndices,currentPlayerPokemonIndex
+    jmp calculate_move_index
+get_ai_pokemon_for_calc:
+    LOAD_ARRAY_ELEMENT aiTeamIndices,currentAIPokemonIndex
+calculate_move_index:
     mov cl,4
     mul cl
     mov bx,ax
@@ -1839,272 +1839,272 @@ dm_calc:
     call nl
     pop bx
     
-    call CHECK_ACCURACY
+    call ROLL_ACCURACY_CHECK
     cmp al,0
-    je dm_done
+    je move_execution_complete
     
     mov al,mFlags[bx]
     test al,01h
-    jz dm_dmg
+    jz calculate_damage
     
     mov al,mStatusType[bx]
     cmp al,0
-    je dm_done
+    je move_execution_complete
     cmp al,3
-    je dm_rest
+    je execute_rest_heal
     
     mov dx,si
     cmp dh,0
-    jne dm_stat_pl
-    LOAD_IDX activeAI
-    cmp aiStatus[bx],0
-    jne dm_stat_fail
-    mov aiStatus[bx],al
-    mov aiStatusTurns[bx],3
+    jne apply_status_to_player
+    SET_INDEX_REGISTER currentAIPokemonIndex
+    cmp aiStatusCondition[bx],0
+    jne status_already_applied
+    mov aiStatusCondition[bx],al
+    mov aiStatusDuration[bx],3
     push ax
-    LOAD_ARR aiTeam, activeAI
+    LOAD_ARRAY_ELEMENT aiTeamIndices, currentAIPokemonIndex
     call print_poke
     pop ax
-    jmp dm_stat_msg
-dm_stat_pl:
-    LOAD_IDX activePlayer
-    cmp playerStatus[bx],0
-    jne dm_stat_fail
-    mov playerStatus[bx],al
-    mov playerStatusTurns[bx],3
+    jmp print_status_message
+apply_status_to_player:
+    SET_INDEX_REGISTER currentPlayerPokemonIndex
+    cmp playerStatusCondition[bx],0
+    jne status_already_applied
+    mov playerStatusCondition[bx],al
+    mov playerStatusDuration[bx],3
     push ax
-    LOAD_ARR playerTeam, activePlayer
+    LOAD_ARRAY_ELEMENT playerTeamIndices, currentPlayerPokemonIndex
     call print_poke
     pop ax
-dm_stat_msg:
+print_status_message:
     cmp al,1
-    jne dm_s2
+    jne check_if_sleep_status
     lea dx,strParalyzed
-    jmp dm_smsg
-dm_s2:
+    jmp output_status_string
+check_if_sleep_status:
     cmp al,2
-    jne dm_s4
+    jne check_if_poison_status
     lea dx,strAsleep
-    jmp dm_smsg
-dm_s4:
+    jmp output_status_string
+check_if_poison_status:
     cmp al,4
-    jne dm_s5
+    jne default_burn_status
     lea dx,strPoisoned
-    jmp dm_smsg
-dm_s5:
+    jmp output_status_string
+default_burn_status:
     lea dx,strBurned
-dm_smsg:
+output_status_string:
     call pstr
     call nl
-    jmp dm_done
-dm_stat_fail:
+    jmp move_execution_complete
+status_already_applied:
     PRINTLN strFailed
-    jmp dm_done
+    jmp move_execution_complete
     
-dm_rest:
+execute_rest_heal:
     mov dx,si
     cmp dh,0
-    jne dm_rest_ai
-    mov bl,activePlayer
+    jne rest_heal_ai
+    mov bl,currentPlayerPokemonIndex
     mov bh,0
-    mov al,playerMaxHP[bx]
+    mov al,playerMaximumHP[bx]
     shr al,1
-    add al,playerHP[bx]
-    cmp al,playerMaxHP[bx]
-    jle dm_rh
-    mov al,playerMaxHP[bx]
-dm_rh:
-    mov playerHP[bx],al
-    mov playerStatus[bx],3
+    add al,playerCurrentHP[bx]
+    cmp al,playerMaximumHP[bx]
+    jle apply_player_rest_heal
+    mov al,playerMaximumHP[bx]
+apply_player_rest_heal:
+    mov playerCurrentHP[bx],al
+    mov playerStatusCondition[bx],3
     lea dx,strRested
     call pstr
     call nl
-    jmp dm_done
-dm_rest_ai:
-    LOAD_IDX activeAI
-    mov al,aiMaxHP[bx]
+    jmp move_execution_complete
+rest_heal_ai:
+    SET_INDEX_REGISTER currentAIPokemonIndex
+    mov al,aiMaximumHP[bx]
     shr al,1
-    add al,aiHP[bx]
-    cmp al,aiMaxHP[bx]
-    jbe dm_rha
-    mov al,aiMaxHP[bx]
-dm_rha:
-    mov aiHP[bx],al
-    mov aiStatus[bx],3
+    add al,aiCurrentHP[bx]
+    cmp al,aiMaximumHP[bx]
+    jbe apply_ai_rest_heal
+    mov al,aiMaximumHP[bx]
+apply_ai_rest_heal:
+    mov aiCurrentHP[bx],al
+    mov aiStatusCondition[bx],3
     PRINTLN strRested
-    jmp dm_done
+    jmp move_execution_complete
     
-dm_dmg:
+calculate_damage:
     push bx
     mov dl,mPower[bx]
     mov dh,mType[bx]
     mov ax,si
     cmp ah,0
-    jne dm_pd
+    jne get_player_defender_type
     push dx
-    LOAD_IDX activeAI
-    mov al,aiTeam[bx]
+    SET_INDEX_REGISTER currentAIPokemonIndex
+    mov al,aiTeamIndices[bx]
     mov ah,0
     mov bx,ax
     mov cl,pType[bx]
     pop dx
-    jmp dm_eff
-dm_pd:
+    jmp lookup_type_effectiveness
+get_player_defender_type:
     push dx
-    LOAD_IDX activePlayer
-    mov al,playerTeam[bx]
+    SET_INDEX_REGISTER currentPlayerPokemonIndex
+    mov al,playerTeamIndices[bx]
     mov ah,0
     mov bx,ax
     mov cl,pType[bx]
     pop dx
-dm_eff:
+lookup_type_effectiveness:
     push dx
     mov al,dh
     mov ah,cl
-    call GET_MULT
+    call GET_TYPE_EFFECTIVENESS
     mov ch,al
     pop dx
     mov al,dl
     cmp ch,2
-    jne dm_n2
+    jne check_if_not_effective
     add al,al
     push ax
     lea dx,strSuper
     call pstr
     call nl
     pop ax
-    jmp dm_app
-dm_n2:
+    jmp apply_final_damage
+check_if_not_effective:
     cmp ch,0
-    jne dm_app
+    jne apply_final_damage
     shr al,1
     cmp al,0
-    jne dm_wk
+    jne apply_not_effective_min
     mov al,1
-dm_wk:
+apply_not_effective_min:
     push ax
     lea dx,strWeak
     call pstr
     call nl
     pop ax
-dm_app:
+apply_final_damage:
     push ax
     push dx
     mov ah, 0
     int 1Ah
     and dl, 0Fh
-    jnz no_crit
+    jnz no_critical_hit
     shl al, 1
-    jnc crit_done
+    jnc critical_hit_applied
     mov al, 255
-crit_done:
+critical_hit_applied:
     PRINTLN strCritical
-no_crit:
+no_critical_hit:
     pop dx
     pop ax
     mov dx,si
     cmp dh,0
-    jne dm_ph
-    APPLY_DAMAGE activeAI, aiHP, AI_FAINT
-    jmp dm_rech
-dm_ph:
-    APPLY_DAMAGE activePlayer, playerHP, PLAYER_FAINT
-dm_rech:
+    jne damage_player_pokemon
+    APPLY_DAMAGE_TO_TARGET currentAIPokemonIndex, aiCurrentHP, HANDLE_AI_POKEMON_FAINT
+    jmp check_recharge_needed
+damage_player_pokemon:
+    APPLY_DAMAGE_TO_TARGET currentPlayerPokemonIndex, playerCurrentHP, HANDLE_PLAYER_POKEMON_FAINT
+check_recharge_needed:
     pop bx
     mov al,mFlags[bx]
     test al,02h
-    jz dm_done
+    jz move_execution_complete
     mov dx,si
     cmp dh,0
-    jne dm_rech_ai
-    mov bl,activePlayer
+    jne set_ai_recharge_flag
+    mov bl,currentPlayerPokemonIndex
     mov bh,0
-    mov playerRecharge[bx],1
-    jmp dm_done
-dm_rech_ai:
-    mov bl,activeAI
+    mov playerRechargeFlag[bx],1
+    jmp move_execution_complete
+set_ai_recharge_flag:
+    mov bl,currentAIPokemonIndex
     mov bh,0
-    mov aiRecharge[bx],1
-dm_done:
+    mov aiRechargeFlag[bx],1
+move_execution_complete:
     pop si
     pop dx
     pop cx
     pop bx
     pop ax
     ret
-DO_MOVE endp
+EXECUTE_MOVE_ATTACK endp
 
-AI_FAINT proc
+HANDLE_AI_POKEMON_FAINT proc
     push ax
     push bx
-    LOAD_ARR aiTeam,activeAI
+    LOAD_ARRAY_ELEMENT aiTeamIndices,currentAIPokemonIndex
     call print_poke
     PRINTLN strFaint
     mov bx,0
-af1:
+find_next_ai_pokemon:
     cmp bx,3
-    jge af2
-    cmp aiHP[bx],0
-    jg af_f
+    jge ai_faint_complete
+    cmp aiCurrentHP[bx],0
+    jg switch_to_alive_ai
     inc bx
-    jmp af1
-af_f:
-    mov activeAI,bl
+    jmp find_next_ai_pokemon
+switch_to_alive_ai:
+    mov currentAIPokemonIndex,bl
     PRINT strGo
-    mov al,aiTeam[bx]
+    mov al,aiTeamIndices[bx]
     call print_poke
     call nl
-af2:
+ai_faint_complete:
     pop bx
     pop ax
     ret
-AI_FAINT endp
+HANDLE_AI_POKEMON_FAINT endp
 
-PLAYER_FAINT proc
+HANDLE_PLAYER_POKEMON_FAINT proc
     push ax
     push bx
-    LOAD_ARR playerTeam,activePlayer
+    LOAD_ARRAY_ELEMENT playerTeamIndices,currentPlayerPokemonIndex
     call print_poke
     PRINTLN strFaint
     mov bx,0
-pf1:
+find_next_player_pokemon:
     cmp bx,3
-    jge pf2
-    cmp playerHP[bx],0
-    jg pf_f
+    jge player_faint_complete
+    cmp playerCurrentHP[bx],0
+    jg switch_to_alive_player
     inc bx
-    jmp pf1
-pf_f:
-    mov activePlayer,bl
+    jmp find_next_player_pokemon
+switch_to_alive_player:
+    mov currentPlayerPokemonIndex,bl
     PRINT strGo
-    mov al,playerTeam[bx]
+    mov al,playerTeamIndices[bx]
     call print_poke
     call nl
-pf2:
+player_faint_complete:
     pop bx
     pop ax
     ret
-PLAYER_FAINT endp
+HANDLE_PLAYER_POKEMON_FAINT endp
 
-CHECK_END proc
+CHECK_BATTLE_END_CONDITION proc
     push ax
     push bx
     push cx
-    SUM_HP aiHP
+    SUM_TEAM_HP aiCurrentHP
     cmp al,0
-    jne ce2
-    mov battleResult,1
-    jmp ce_d
-ce2:
-    SUM_HP playerHP
+    jne check_player_team_hp
+    mov battleOutcomeFlag,1
+    jmp end_check_done
+check_player_team_hp:
+    SUM_TEAM_HP playerCurrentHP
     cmp al,0
-    jne ce_d
-    mov battleResult,2
-ce_d:
+    jne end_check_done
+    mov battleOutcomeFlag,2
+end_check_done:
     pop cx
     pop bx
     pop ax
     ret
-CHECK_END endp
+CHECK_BATTLE_END_CONDITION endp
 
 end main
