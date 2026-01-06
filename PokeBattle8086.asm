@@ -1656,6 +1656,8 @@ apply_player_heal:
     call nl
     PRINTLN strLine
     PRINTLN strPlayerAct
+    LOAD_ARRAY_ELEMENT playerTeamIndices,currentPlayerPokemonIndex
+    call print_poke
     PRINTLN strHeal
     jmp player_turn_complete
 player_switch_pokemon:
@@ -1731,7 +1733,9 @@ EXECUTE_AI_TURN proc
 ai_apply_heal:
     mov aiCurrentHP[bx],al
     call nl
-    PRINT strHeal
+    LOAD_ARRAY_ELEMENT aiTeamIndices,currentAIPokemonIndex
+    call print_poke
+    PRINTLN strHeal
     jmp ai_turn_complete
 ai_choose_attack:
     SET_INDEX_REGISTER currentAIPokemonIndex
